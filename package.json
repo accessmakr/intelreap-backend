@@ -1,0 +1,13 @@
+{
+  "name": "intelreap-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Intelreap backend services",
+  "engines": {
+    "node": "18.x"
+  },
+  "dependencies": {
+    "node-fetch": "2.7.0"
+  },
+  "license": "UNLICENSED"
+}
