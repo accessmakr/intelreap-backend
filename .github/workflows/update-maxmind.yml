@@ -10,6 +10,9 @@ on:
         required: false
         default: 'false'
 
+permissions:
+  contents: write
+
 jobs:
   update:
     name: Download MaxMind GeoLite2 Databases
@@ -19,6 +22,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -43,7 +48,7 @@ jobs:
           echo "GeoLite2-ASN.mmdb size:"
           du -h data/geoip/GeoLite2-ASN.mmdb
 
-      - name: Commit database files
+      - name: Commit and push database files
         run: |
           git config --local user.email \
             "action@github.com"
@@ -53,18 +58,7 @@ jobs:
           git diff --staged --quiet || \
             git commit -m \
             "chore: update MaxMind databases $(date -u +%Y-%m-%d)"
-
-      - name: Push changes
-        uses: ad-hoc/push@v5
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: main
-
-      - name: Trigger Vercel redeploy
-        run: |
-          echo "Database files committed."
-          echo "Vercel will auto-deploy from main branch."
-          echo "Updated at: $(date -u)"
+          git push
 
       - name: Report status
         if: always()
