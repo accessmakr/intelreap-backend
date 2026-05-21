@@ -1,11 +1,8 @@
 name: Sync PeeringDB
 
 on:
-  # Run every Monday at midnight UTC
   schedule:
     - cron: '0 0 * * 1'
-
-  # Allow manual trigger from GitHub Actions tab
   workflow_dispatch:
     inputs:
       force_sync:
@@ -27,7 +24,6 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '24'
-          cache: 'npm'
 
       - name: Install dependencies
         run: npm install
