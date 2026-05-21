@@ -1,0 +1,73 @@
+name: Update MaxMind Databases
+
+on:
+  schedule:
+    - cron: '0 2 * * 2'
+  workflow_dispatch:
+    inputs:
+      force_update:
+        description: 'Force update even if recent'
+        required: false
+        default: 'false'
+
+jobs:
+  update:
+    name: Download MaxMind GeoLite2 Databases
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Download MaxMind databases
+        env:
+          MAXMIND_ACCOUNT_ID: ${{ secrets.MAXMIND_ACCOUNT_ID }}
+          MAXMIND_LICENSE_KEY: ${{ secrets.MAXMIND_LICENSE_KEY }}
+        run: node scripts/download-maxmind.js
+
+      - name: Verify database files
+        run: |
+          echo "Checking downloaded files..."
+          ls -lh data/geoip/
+          echo "GeoLite2-City.mmdb size:"
+          du -h data/geoip/GeoLite2-City.mmdb
+          echo "GeoLite2-ASN.mmdb size:"
+          du -h data/geoip/GeoLite2-ASN.mmdb
+
+      - name: Commit database files
+        run: |
+          git config --local user.email \
+            "action@github.com"
+          git config --local user.name \
+            "GitHub Action"
+          git add data/geoip/
+          git diff --staged --quiet || \
+            git commit -m \
+            "chore: update MaxMind databases $(date -u +%Y-%m-%d)"
+
+      - name: Push changes
+        uses: ad-hoc/push@v5
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: main
+
+      - name: Trigger Vercel redeploy
+        run: |
+          echo "Database files committed."
+          echo "Vercel will auto-deploy from main branch."
+          echo "Updated at: $(date -u)"
+
+      - name: Report status
+        if: always()
+        run: |
+          echo "Update completed at $(date -u)"
+          echo "Status: ${{ job.status }}"
