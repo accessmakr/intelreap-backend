@@ -1,0 +1,45 @@
+name: Sync PeeringDB
+
+on:
+  # Run every Monday at midnight UTC
+  schedule:
+    - cron: '0 0 * * 1'
+
+  # Allow manual trigger from GitHub Actions tab
+  workflow_dispatch:
+    inputs:
+      force_sync:
+        description: 'Force sync even if cache is fresh'
+        required: false
+        default: 'false'
+
+jobs:
+  sync:
+    name: Sync PeeringDB Network Data
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run PeeringDB sync
+        env:
+          KV_REST_API_URL: ${{ secrets.KV_REST_API_URL }}
+          KV_REST_API_TOKEN: ${{ secrets.KV_REST_API_TOKEN }}
+        run: node scripts/sync-peeringdb.js
+
+      - name: Report sync status
+        if: always()
+        run: |
+          echo "Sync completed at $(date -u)"
+          echo "Status: ${{ job.status }}"
