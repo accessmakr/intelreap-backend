@@ -1,33 +1,20 @@
 const fetch = require('node-fetch')
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json'
-}
+const cache = require('../lib/cache')
+const geoip = require('../lib/geoip')
+const validator = require('../lib/request-validator')
 
 const REQUEST_TIMEOUT_MS = 8000
 
-// Primary and fallback API endpoints
-const IP_APIS = {
-  primary: {
-    ipify: 'https://api.ipify.org?format=json',
-    ipifyV6: 'https://api64.ipify.org?format=json',
-    geoip: 'https://ipapi.co/{IP}/json/'
-  },
-  fallback: {
-    combined: 'https://ipwho.is/'
-  },
-  secondary: {
-    combined: 'https://ip-api.com/json/?fields=66846719'
-  }
-}
-
-// Create fetch with timeout
-const fetchWithTimeout = async (url, options = {}, timeoutMs = REQUEST_TIMEOUT_MS) => {
+const fetchWithTimeout = async (
+  url,
+  options = {},
+  timeoutMs = REQUEST_TIMEOUT_MS
+) => {
   const controller = new AbortController()
-  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const timeout = setTimeout(
+    () => controller.abort(),
+    timeoutMs
+  )
   try {
     const response = await fetch(url, {
       ...options,
@@ -45,45 +32,84 @@ const fetchWithTimeout = async (url, options = {}, timeoutMs = REQUEST_TIMEOUT_M
   }
 }
 
-// Normalize data from ipapi.co
-const normalizeIpapiResponse = (ipData, geoData) => {
+// Extract real client IP from request
+const extractClientIP = (req) => {
+  const forwardedFor =
+    req.headers['x-forwarded-for']
+  if (forwardedFor) {
+    const ips = forwardedFor
+      .split(',')
+      .map(ip => ip.trim())
+    const realIP = ips[0]
+    const ipv4Regex =
+      /^(\d{1,3}\.){3}\d{1,3}$/
+    const ipv6Regex =
+      /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/
+    if (
+      ipv4Regex.test(realIP) ||
+      ipv6Regex.test(realIP)
+    ) {
+      return realIP
+    }
+  }
+  return (
+    req.headers['x-real-ip'] ||
+    req.headers['cf-connecting-ip'] ||
+    req.connection?.remoteAddress ||
+    'unknown'
+  )
+}
+
+// Normalize ip-api.com response
+const normalizeIPAPI = (data, ip) => {
   return {
-    ip: ipData.ip || null,
-    ipVersion: ipData.ip?.includes(':') ? 'IPv6' : 'IPv4',
-    isp: geoData.org || null,
-    org: geoData.org || null,
-    asn: geoData.asn || null,
-    country: geoData.country_name || null,
-    countryCode: geoData.country_code || null,
-    region: geoData.region || null,
-    city: geoData.city || null,
-    postal: geoData.postal || null,
-    latitude: geoData.latitude || null,
-    longitude: geoData.longitude || null,
-    timezone: geoData.timezone || null,
-    utcOffset: geoData.utc_offset || null,
-    connectionType: geoData.org?.toLowerCase().includes('mobile')
+    ip: ip,
+    ipVersion: ip.includes(':') ? 'IPv6' : 'IPv4',
+    isp: data.isp || data.org || null,
+    org: data.org || data.isp || null,
+    asn: data.as || null,
+    country: data.country || null,
+    countryCode: data.countryCode || null,
+    region: data.regionName || null,
+    city: data.city || null,
+    postal: data.zip || null,
+    latitude: data.lat || null,
+    longitude: data.lon || null,
+    timezone: data.timezone || null,
+    utcOffset: data.offset
+      ? (data.offset >= 0 ? '+' : '') +
+        String(Math.floor(
+          Math.abs(data.offset) / 3600
+        )).padStart(2, '0') +
+        ':' +
+        String(Math.floor(
+          (Math.abs(data.offset) % 3600) / 60
+        )).padStart(2, '0')
+      : null,
+    connectionType: data.mobile
       ? 'mobile'
-      : geoData.org?.toLowerCase().includes('fiber')
-      ? 'fiber'
-      : geoData.org?.toLowerCase().includes('cable')
-      ? 'broadband'
+      : data.proxy
+      ? 'proxy'
       : 'broadband',
-    currency: geoData.currency || null,
-    languages: geoData.languages || null,
-    callingCode: geoData.country_calling_code || null,
-    continent: geoData.continent_code || null,
-    source: 'ipapi'
+    mobile: data.mobile || false,
+    proxy: data.proxy || false,
+    hosting: data.hosting || false,
+    continent: null,
+    source: 'ip-api'
   }
 }
 
-// Normalize data from ipwho.is
-const normalizeIpwhoResponse = (data) => {
+// Normalize ipwho.is response
+const normalizeIPWho = (data) => {
   return {
-    ip: data.ip || null,
-    ipVersion: data.type || (data.ip?.includes(':') ? 'IPv6' : 'IPv4'),
-    isp: data.connection?.isp || data.org || null,
-    org: data.org || data.connection?.org || null,
+    ip: data.ip,
+    ipVersion: data.type ||
+      (data.ip?.includes(':') ? 'IPv6' : 'IPv4'),
+    isp: data.connection?.isp ||
+      data.connection?.org ||
+      data.org || null,
+    org: data.org ||
+      data.connection?.org || null,
     asn: data.connection?.asn
       ? `AS${data.connection.asn}`
       : null,
@@ -99,172 +125,162 @@ const normalizeIpwhoResponse = (data) => {
     connectionType: data.connection?.domain
       ? 'broadband'
       : 'unknown',
-    currency: data.currency?.code || null,
-    languages: null,
-    callingCode: data.calling_code || null,
+    mobile: false,
+    proxy: false,
+    hosting: false,
     continent: data.continent_code || null,
     source: 'ipwho'
   }
 }
 
-// Normalize data from ip-api.com
-const normalizeIpApiComResponse = (data) => {
+// Normalize MaxMind response
+const normalizeMaxMind = (data, ip) => {
   return {
-    ip: data.query || null,
-    ipVersion: data.query?.includes(':') ? 'IPv6' : 'IPv4',
-    isp: data.isp || null,
-    org: data.org || null,
-    asn: data.as || null,
+    ip: ip,
+    ipVersion: ip.includes(':') ? 'IPv6' : 'IPv4',
+    isp: data.asnOrg || null,
+    org: data.asnOrg || null,
+    asn: data.asn || null,
     country: data.country || null,
     countryCode: data.countryCode || null,
-    region: data.regionName || null,
+    region: data.region || null,
     city: data.city || null,
-    postal: data.zip || null,
-    latitude: data.lat || null,
-    longitude: data.lon || null,
+    postal: data.postal || null,
+    latitude: data.latitude || null,
+    longitude: data.longitude || null,
     timezone: data.timezone || null,
-    utcOffset: data.offset
-      ? (data.offset >= 0 ? '+' : '') +
-        Math.floor(data.offset / 3600) + ':00'
-      : null,
-    connectionType: data.mobile
-      ? 'mobile'
-      : data.proxy
-      ? 'proxy'
-      : 'broadband',
-    currency: null,
-    languages: null,
-    callingCode: null,
-    continent: null,
-    source: 'ipApiCom'
+    utcOffset: data.utcOffset || null,
+    connectionType: data.connectionType || null,
+    mobile: false,
+    proxy: false,
+    hosting: false,
+    continent: data.continentCode || null,
+    source: 'maxmind-local'
   }
 }
 
-// Primary strategy: ipify + ipapi.co
-const fetchPrimaryStrategy = async () => {
-  // Step 1: Get public IP
-  const ipResponse = await fetchWithTimeout(
-    IP_APIS.primary.ipifyV6,
-    {},
-    5000
-  )
-  if (!ipResponse.ok) {
-    throw new Error(
-      `ipify failed: ${ipResponse.status}`
-    )
-  }
-  const ipData = await ipResponse.json()
-  if (!ipData.ip) {
-    throw new Error('No IP returned from ipify')
-  }
+// STRATEGY 1 — ip-api.com (PRIMARY)
+// Free, no monthly limit
+// 45 requests per minute
+const fetchIPAPI = async (ip) => {
+  const fields = [
+    'status', 'message', 'country',
+    'countryCode', 'region', 'regionName',
+    'city', 'zip', 'lat', 'lon',
+    'timezone', 'offset', 'isp', 'org',
+    'as', 'mobile', 'proxy', 'hosting',
+    'query'
+  ].join(',')
 
-  // Step 2: Get geo data for that IP
-  const geoUrl = IP_APIS.primary.geoip.replace(
-    '{IP}',
-    ipData.ip
-  )
-  const geoResponse = await fetchWithTimeout(
-    geoUrl,
-    {},
-    6000
-  )
-  if (!geoResponse.ok) {
-    throw new Error(
-      `ipapi.co failed: ${geoResponse.status}`
-    )
-  }
-  const geoData = await geoResponse.json()
-  if (geoData.error) {
-    throw new Error(
-      `ipapi.co error: ${geoData.reason}`
-    )
-  }
-
-  return normalizeIpapiResponse(ipData, geoData)
-}
-
-// Fallback strategy: ipwho.is
-const fetchFallbackStrategy = async () => {
   const response = await fetchWithTimeout(
-    IP_APIS.fallback.combined,
+    `http://ip-api.com/json/${ip}?fields=${fields}`,
     {},
-    6000
+    7000
   )
-  if (!response.ok) {
-    throw new Error(
-      `ipwho.is failed: ${response.status}`
-    )
-  }
-  const data = await response.json()
-  if (!data.success && data.success !== undefined) {
-    throw new Error('ipwho.is returned failure')
-  }
-  return normalizeIpwhoResponse(data)
-}
 
-// Secondary fallback strategy: ip-api.com
-const fetchSecondaryFallbackStrategy = async () => {
-  const response = await fetchWithTimeout(
-    IP_APIS.secondary.combined,
-    {},
-    6000
-  )
   if (!response.ok) {
     throw new Error(
       `ip-api.com failed: ${response.status}`
     )
   }
+
   const data = await response.json()
+
   if (data.status === 'fail') {
     throw new Error(
       `ip-api.com error: ${data.message}`
     )
   }
-  return normalizeIpApiComResponse(data)
+
+  return normalizeIPAPI(data, ip)
+}
+
+// STRATEGY 2 — ipwho.is (FALLBACK)
+const fetchIPWho = async (ip) => {
+  const url = ip
+    ? `https://ipwho.is/${ip}`
+    : 'https://ipwho.is/'
+
+  const response = await fetchWithTimeout(
+    url,
+    {},
+    7000
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      `ipwho.is failed: ${response.status}`
+    )
+  }
+
+  const data = await response.json()
+
+  if (!data.success && data.success !== undefined) {
+    throw new Error('ipwho.is returned failure')
+  }
+
+  return normalizeIPWho(data)
+}
+
+// STRATEGY 3 — MaxMind local (FALLBACK)
+const fetchMaxMind = async (ip) => {
+  const isReady = geoip.isAvailable()
+
+  if (!isReady) {
+    await geoip.initialize()
+  }
+
+  if (!geoip.isAvailable()) {
+    throw new Error('MaxMind databases not available')
+  }
+
+  const data = await geoip.lookup(ip)
+
+  if (!data) {
+    throw new Error(
+      `MaxMind returned no data for ${ip}`
+    )
+  }
+
+  return normalizeMaxMind(data, ip)
 }
 
 module.exports = async (req, res) => {
 
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    Object.entries(CORS_HEADERS).forEach(
-      ([key, value]) => res.setHeader(key, value)
-    )
-    return res.status(200).end()
-  }
+  // Run full validation pipeline
+  const validation = await validator.validate(
+    req,
+    res,
+    'ip-identity'
+  )
 
-  // Method validation
-  if (req.method !== 'GET') {
-    Object.entries(CORS_HEADERS).forEach(
-      ([key, value]) => res.setHeader(key, value)
-    )
-    return res.status(405).json({
-      error: 'Method not allowed',
-      allowedMethods: ['GET']
+  if (!validation.valid) return
+
+  const startTime = Date.now()
+  const clientIP = req.clientIP ||
+    extractClientIP(req)
+
+  // Check Redis cache first
+  const cacheKey = cache.KEYS.ipIdentity(clientIP)
+  const cached = await cache.get(cacheKey)
+
+  if (cached) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...cached,
+        fromCache: true,
+        responseTime:
+          (Date.now() - startTime) + 'ms'
+      }
     })
   }
 
-  const startTime = Date.now()
-
-  // Set response headers
-  Object.entries(CORS_HEADERS).forEach(
-    ([key, value]) => res.setHeader(key, value)
-  )
-
-  // Execute with three tier fallback chain
+  // Execute three tier fallback chain
   const strategies = [
-    {
-      name: 'primary',
-      fn: fetchPrimaryStrategy
-    },
-    {
-      name: 'fallback',
-      fn: fetchFallbackStrategy
-    },
-    {
-      name: 'secondary',
-      fn: fetchSecondaryFallbackStrategy
-    }
+    { name: 'ip-api', fn: () => fetchIPAPI(clientIP) },
+    { name: 'ipwho', fn: () => fetchIPWho(clientIP) },
+    { name: 'maxmind', fn: () => fetchMaxMind(clientIP) }
   ]
 
   const errors = []
@@ -273,22 +289,33 @@ module.exports = async (req, res) => {
     try {
       const data = await strategy.fn()
 
-      // Validate essential fields
       if (!data.ip) {
-        throw new Error(
-          'Response missing IP address'
-        )
+        throw new Error('Response missing IP')
       }
 
-      const responseTime = Date.now() - startTime
+      // Enrich with fetch timestamp
+      const enriched = {
+        ...data,
+        fetchedAt: new Date().toISOString(),
+        strategyUsed: strategy.name
+      }
+
+      // Cache successful result
+      await cache.set(
+        cacheKey,
+        enriched,
+        cache.TTL.IP_IDENTITY
+      )
+
+      const responseTime =
+        Date.now() - startTime
 
       return res.status(200).json({
         success: true,
         data: {
-          ...data,
-          fetchedAt: new Date().toISOString(),
-          responseTime: responseTime + 'ms',
-          strategyUsed: strategy.name
+          ...enriched,
+          fromCache: false,
+          responseTime: responseTime + 'ms'
         }
       })
 
@@ -297,15 +324,15 @@ module.exports = async (req, res) => {
         strategy: strategy.name,
         error: error.message
       })
-      // Continue to next strategy
     }
   }
 
-  // All three strategies failed
+  // All strategies failed
   return res.status(503).json({
     success: false,
-    error: 'All enrichment strategies failed',
+    error: 'All IP identity strategies failed',
     details: errors,
+    ip: clientIP,
     timestamp: new Date().toISOString(),
     responseTime: (Date.now() - startTime) + 'ms'
   })
