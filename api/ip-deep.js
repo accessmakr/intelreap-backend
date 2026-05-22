@@ -1,213 +1,10 @@
 const fetch = require('node-fetch')
-
-const CORS_HEADERS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-  'Content-Type': 'application/json'
-}
+const cache = require('../lib/cache')
+const geoip = require('../lib/geoip')
+const asnDb = require('../lib/asn-database')
+const validator = require('../lib/request-validator')
 
 const REQUEST_TIMEOUT_MS = 8000
-
-// Known datacenter and cloud provider ASNs
-const DATACENTER_ASNS = {
-  13335: 'Cloudflare',
-  16509: 'Amazon AWS',
-  14618: 'Amazon AWS',
-  15169: 'Google Cloud',
-  396982: 'Google Cloud',
-  8075: 'Microsoft Azure',
-  14061: 'DigitalOcean',
-  16276: 'OVH',
-  24940: 'Hetzner',
-  20473: 'Vultr',
-  63949: 'Linode',
-  46484: 'Linode',
-  54113: 'Fastly',
-  32934: 'Facebook',
-  20940: 'Akamai',
-  16625: 'Akamai',
-  22822: 'Limelight',
-  209: 'CenturyLink',
-  3356: 'Lumen',
-  7922: 'Comcast',
-  33070: 'Oracle Cloud',
-  31898: 'Oracle Cloud',
-  135061: 'Oracle Cloud',
-  45102: 'Alibaba Cloud',
-  37963: 'Alibaba Cloud',
-  55967: 'Baidu',
-  38365: 'Baidu',
-  4134: 'China Telecom',
-  4837: 'China Unicom'
-}
-
-// Known mobile carrier ASNs
-const MOBILE_ASNS = {
-  29465: 'MTN Nigeria',
-  36873: 'MTN Nigeria',
-  37076: 'Airtel Nigeria',
-  37122: 'Globacom Nigeria',
-  36916: '9mobile Nigeria',
-  33776: 'Airtel Africa',
-  328794: 'MTN South Africa',
-  16637: 'MTN South Africa',
-  36994: 'Vodacom South Africa',
-  37457: 'Telkom South Africa',
-  6713: 'IAM Morocco',
-  36903: 'MTN Ghana',
-  29614: 'Vodafone Ghana',
-  15924: 'Orange France',
-  12322: 'Free France',
-  5607: 'Sky UK',
-  31334: 'Vodafone Germany',
-  3320: 'Deutsche Telekom',
-  7018: 'AT&T',
-  22394: 'Verizon Wireless',
-  21928: 'T-Mobile US',
-  1239: 'Sprint'
-}
-
-// Known education and government ASNs patterns
-const EDU_PATTERNS = [
-  'university', 'college', 'school',
-  'edu', 'academic', 'research',
-  'institute', 'campus'
-]
-
-const GOV_PATTERNS = [
-  'government', 'federal', 'ministry',
-  'military', 'defense', 'agency',
-  'municipal', 'state', 'national'
-]
-
-// Network tier classification
-const classifyNetworkTier = (asnNumber, orgName) => {
-  const tier1Providers = [
-    'AT&T', 'Verizon', 'Sprint', 'Lumen',
-    'CenturyLink', 'NTT', 'Tata', 'Cogent',
-    'Level 3', 'Hurricane Electric', 'Zayo',
-    'GTT', 'Telia', 'Deutsche Telekom',
-    'Telecom Italia', 'Orange', 'BT'
-  ]
-  const org = (orgName || '').toLowerCase()
-  const isTier1 = tier1Providers.some(
-    p => org.includes(p.toLowerCase())
-  )
-  if (isTier1) return 'Tier 1'
-  if (DATACENTER_ASNS[asnNumber]) return 'Tier 2'
-  return 'Tier 3'
-}
-
-// ASN type classification
-const classifyAsnType = (asnNumber, orgName) => {
-  if (DATACENTER_ASNS[asnNumber]) return 'Datacenter'
-  if (MOBILE_ASNS[asnNumber]) return 'Mobile Carrier'
-  const org = (orgName || '').toLowerCase()
-  if (EDU_PATTERNS.some(p => org.includes(p))) {
-    return 'Education'
-  }
-  if (GOV_PATTERNS.some(p => org.includes(p))) {
-    return 'Government'
-  }
-  if (
-    org.includes('wireless') ||
-    org.includes('mobile') ||
-    org.includes('cellular')
-  ) {
-    return 'Mobile Carrier'
-  }
-  if (
-    org.includes('cloud') ||
-    org.includes('hosting') ||
-    org.includes('server') ||
-    org.includes('datacenter')
-  ) {
-    return 'Datacenter'
-  }
-  return 'Residential ISP'
-}
-
-// Route origin classification
-const classifyRouteOrigin = (asnType, orgName) => {
-  const org = (orgName || '').toLowerCase()
-  if (asnType === 'Datacenter') {
-    if (
-      org.includes('cloudflare') ||
-      org.includes('akamai') ||
-      org.includes('fastly')
-    ) {
-      return 'CDN Edge'
-    }
-    return 'Cloud Hosted'
-  }
-  if (asnType === 'Mobile Carrier') return 'Mobile Network'
-  if (org.includes('satellite')) return 'Satellite'
-  return 'Direct ISP'
-}
-
-// Network health score computation
-const computeNetworkHealthScore = (
-  networkTier,
-  asnType,
-  bgpStatus,
-  routeOrigin
-) => {
-  let score = 50
-
-  // Tier scoring
-  if (networkTier === 'Tier 1') score += 30
-  else if (networkTier === 'Tier 2') score += 20
-  else if (networkTier === 'Tier 3') score += 10
-
-  // ASN type scoring
-  if (asnType === 'Residential ISP') score += 15
-  else if (asnType === 'Mobile Carrier') score += 10
-  else if (asnType === 'Datacenter') score += 5
-  else if (asnType === 'Education') score += 12
-
-  // BGP status scoring
-  if (bgpStatus === 'active') score += 5
-
-  return Math.min(100, Math.max(0, score))
-}
-
-// Registry classification
-const classifyRegistry = (countryCode) => {
-  const afrinic = [
-    'NG', 'ZA', 'GH', 'KE', 'EG', 'MA',
-    'TN', 'DZ', 'ET', 'TZ', 'UG', 'SN',
-    'CI', 'CM', 'AO', 'MZ', 'MG', 'ZW',
-    'ZM', 'SD', 'LY', 'SO', 'RW', 'BJ'
-  ]
-  const arin = [
-    'US', 'CA', 'MX', 'AG', 'AI', 'AN',
-    'AW', 'BB', 'BL', 'BM', 'BS', 'BZ',
-    'CR', 'CU', 'DM', 'DO', 'GD', 'GP'
-  ]
-  const ripe = [
-    'GB', 'DE', 'FR', 'IT', 'ES', 'NL',
-    'RU', 'PL', 'SE', 'NO', 'DK', 'FI',
-    'CH', 'AT', 'BE', 'PT', 'GR', 'CZ',
-    'HU', 'RO', 'UA', 'TR', 'SA', 'AE'
-  ]
-  const apnic = [
-    'CN', 'JP', 'IN', 'AU', 'KR', 'ID',
-    'PK', 'BD', 'PH', 'VN', 'TH', 'MY',
-    'SG', 'NZ', 'TW', 'HK', 'MN', 'KH'
-  ]
-  const lacnic = [
-    'BR', 'AR', 'CL', 'CO', 'PE', 'VE',
-    'EC', 'BO', 'PY', 'UY', 'GY', 'SR'
-  ]
-
-  if (afrinic.includes(countryCode)) return 'AFRINIC'
-  if (arin.includes(countryCode)) return 'ARIN'
-  if (ripe.includes(countryCode)) return 'RIPE NCC'
-  if (apnic.includes(countryCode)) return 'APNIC'
-  if (lacnic.includes(countryCode)) return 'LACNIC'
-  return 'ARIN'
-}
 
 const fetchWithTimeout = async (
   url,
@@ -236,207 +33,407 @@ const fetchWithTimeout = async (
   }
 }
 
-// Fetch deep ASN intelligence from ipwho.is
-const fetchDeepIntelligence = async () => {
-  const response = await fetchWithTimeout(
-    'https://ipwho.is/',
-    {},
-    7000
+// Extract real client IP
+const extractClientIP = (req) => {
+  const forwardedFor =
+    req.headers['x-forwarded-for']
+  if (forwardedFor) {
+    const ips = forwardedFor
+      .split(',')
+      .map(ip => ip.trim())
+    const realIP = ips[0]
+    const ipv4Regex =
+      /^(\d{1,3}\.){3}\d{1,3}$/
+    const ipv6Regex =
+      /^([0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}$/
+    if (
+      ipv4Regex.test(realIP) ||
+      ipv6Regex.test(realIP)
+    ) {
+      return realIP
+    }
+  }
+  return (
+    req.headers['x-real-ip'] ||
+    req.headers['cf-connecting-ip'] ||
+    req.connection?.remoteAddress ||
+    'unknown'
   )
-  if (!response.ok) {
-    throw new Error(
-      `Primary deep fetch failed: ${response.status}`
-    )
-  }
-  const data = await response.json()
-  if (!data.ip) {
-    throw new Error('No IP in deep response')
-  }
-  return data
 }
 
-// Fallback deep fetch from ip-api.com
-const fetchDeepIntelligenceFallback = async () => {
+// Build IP range from IP address
+const buildIPRange = (ip) => {
+  if (!ip || ip.includes(':')) return null
+  const parts = ip.split('.')
+  if (parts.length !== 4) return null
+  return `${parts[0]}.${parts[1]}.0.0/16`
+}
+
+// STRATEGY 1 — ip-api.com (PRIMARY)
+// Returns ASN, org, hosting flags
+// No monthly limit
+const fetchIPAPIDeep = async (ip) => {
+  const fields = [
+    'status', 'message', 'country',
+    'countryCode', 'regionName', 'city',
+    'lat', 'lon', 'timezone', 'offset',
+    'isp', 'org', 'as', 'asname',
+    'mobile', 'proxy', 'hosting', 'query'
+  ].join(',')
+
   const response = await fetchWithTimeout(
-    'https://ip-api.com/json/?fields=66846719',
+    `http://ip-api.com/json/${ip}?fields=${fields}`,
     {},
     7000
   )
+
   if (!response.ok) {
     throw new Error(
-      `Fallback deep fetch failed: ${response.status}`
+      `ip-api.com deep failed: ${response.status}`
     )
   }
+
   const data = await response.json()
+
   if (data.status === 'fail') {
     throw new Error(
-      `Fallback error: ${data.message}`
+      `ip-api.com error: ${data.message}`
     )
   }
-  return data
+
+  return {
+    ip: ip,
+    asn: data.as || null,
+    asnName: data.asname || null,
+    org: data.org || null,
+    isp: data.isp || null,
+    countryCode: data.countryCode || null,
+    country: data.country || null,
+    region: data.regionName || null,
+    city: data.city || null,
+    mobile: data.mobile || false,
+    proxy: data.proxy || false,
+    hosting: data.hosting || false,
+    source: 'ip-api'
+  }
+}
+
+// STRATEGY 2 — ipwho.is (FALLBACK)
+const fetchIPWhoDeep = async (ip) => {
+  const response = await fetchWithTimeout(
+    `https://ipwho.is/${ip}`,
+    {},
+    7000
+  )
+
+  if (!response.ok) {
+    throw new Error(
+      `ipwho.is deep failed: ${response.status}`
+    )
+  }
+
+  const data = await response.json()
+
+  if (
+    !data.success &&
+    data.success !== undefined
+  ) {
+    throw new Error('ipwho.is returned failure')
+  }
+
+  return {
+    ip: ip,
+    asn: data.connection?.asn
+      ? `AS${data.connection.asn}`
+      : null,
+    asnName: data.connection?.isp || null,
+    org: data.org ||
+      data.connection?.org || null,
+    isp: data.connection?.isp || null,
+    countryCode: data.country_code || null,
+    country: data.country || null,
+    region: data.region || null,
+    city: data.city || null,
+    mobile: false,
+    proxy: false,
+    hosting: false,
+    source: 'ipwho'
+  }
+}
+
+// STRATEGY 3 — MaxMind local (FALLBACK)
+const fetchMaxMindDeep = async (ip) => {
+  if (!geoip.isAvailable()) {
+    await geoip.initialize()
+  }
+
+  if (!geoip.isAvailable()) {
+    throw new Error(
+      'MaxMind databases not available'
+    )
+  }
+
+  const [cityData, asnData] = await Promise.all([
+    geoip.lookupCity(ip),
+    geoip.lookupASN(ip)
+  ])
+
+  if (!asnData && !cityData) {
+    throw new Error(
+      'MaxMind returned no data'
+    )
+  }
+
+  return {
+    ip: ip,
+    asn: asnData?.asn || null,
+    asnName: asnData?.asnOrg || null,
+    org: asnData?.asnOrg || null,
+    isp: asnData?.asnOrg || null,
+    countryCode: cityData?.countryCode || null,
+    country: cityData?.country || null,
+    region: cityData?.region || null,
+    city: cityData?.city || null,
+    mobile: false,
+    proxy: false,
+    hosting: false,
+    source: 'maxmind-local'
+  }
+}
+
+// Build complete deep intelligence
+// from raw API data and our engines
+const buildDeepIntelligence = async (
+  rawData,
+  ip
+) => {
+  const asnNumber = rawData.asn
+    ? parseInt(
+        String(rawData.asn)
+          .replace(/[^0-9]/g, ''),
+        10
+      )
+    : null
+
+  const orgName = rawData.org ||
+    rawData.isp ||
+    rawData.asnName
+
+  // Get full ASN classification
+  // Uses PeeringDB + pattern matching
+  const classification = await asnDb.classifyASN(
+    asnNumber,
+    orgName,
+    {
+      hosting: rawData.hosting,
+      mobile: rawData.mobile,
+      proxy: rawData.proxy,
+      org: orgName,
+      isp: rawData.isp,
+      as: rawData.asn
+    }
+  )
+
+  const registry = asnDb.getRegistry(
+    rawData.countryCode
+  )
+
+  const networkHealth = asnDb.computeNetworkHealth(
+    classification.tier,
+    classification.type,
+    'active',
+    classification.prefixes4
+  )
+
+  const tierLabel = asnDb.getTierLabel(
+    classification.tier
+  )
+
+  const peeringCount = asnDb.estimatePeeringCount(
+    classification.tier,
+    classification.prefixes4
+  )
+
+  const upstreamProvider = asnDb.getUpstreamProvider(
+    classification.tier,
+    classification.type
+  )
+
+  const ipRange = buildIPRange(ip)
+
+  return {
+    // Core ASN data
+    asn: rawData.asn || null,
+    asnNumber: asnNumber,
+    asnOwner: classification.provider || orgName,
+    asnType: classification.type,
+    asnCategory: classification.category,
+
+    // Known provider detection
+    knownProvider: classification.isKnown
+      ? classification.provider
+      : null,
+
+    // Network classification
+    networkTier: tierLabel,
+    networkTierNumber: classification.tier,
+    routeOrigin: classification.category === 'datacenter'
+      ? 'Cloud Hosted'
+      : classification.category === 'cdn'
+      ? 'CDN Edge'
+      : classification.category === 'satellite'
+      ? 'Satellite'
+      : classification.category === 'mobile'
+      ? 'Mobile Network'
+      : 'Direct ISP',
+
+    // Registry and allocation
+    allocationRegistry: registry,
+    bgpRouteStatus: 'active',
+    networkAnnouncementStatus: 'announced',
+
+    // Network topology
+    ipRange: ipRange,
+    estimatedPeeringCount: peeringCount,
+    upstreamProvider: upstreamProvider,
+
+    // PeeringDB enrichment if available
+    peeringdbData: classification.peeringdbId
+      ? {
+          id: classification.peeringdbId,
+          traffic: classification.traffic,
+          prefixes4: classification.prefixes4,
+          prefixes6: classification.prefixes6,
+          website: classification.website,
+          policyGeneral: classification.policyGeneral
+        }
+      : null,
+
+    // Scores
+    networkHealthScore: networkHealth,
+
+    // Classification confidence
+    classificationSource: classification.source,
+    classificationConfidence:
+      classification.confidence,
+
+    // Flags from ip-api.com
+    isHosting: rawData.hosting || false,
+    isMobile: rawData.mobile || false,
+    isProxy: rawData.proxy || false,
+
+    // Raw org data
+    rawOrg: orgName,
+    rawASN: rawData.asn,
+    countryCode: rawData.countryCode
+  }
 }
 
 module.exports = async (req, res) => {
 
-  // Handle preflight
-  if (req.method === 'OPTIONS') {
-    Object.entries(CORS_HEADERS).forEach(
-      ([key, value]) => res.setHeader(key, value)
-    )
-    return res.status(200).end()
-  }
+  // Run full validation pipeline
+  const validation = await validator.validate(
+    req,
+    res,
+    'ip-deep'
+  )
 
-  // Method validation
-  if (req.method !== 'GET') {
-    Object.entries(CORS_HEADERS).forEach(
-      ([key, value]) => res.setHeader(key, value)
-    )
-    return res.status(405).json({
-      error: 'Method not allowed',
-      allowedMethods: ['GET']
+  if (!validation.valid) return
+
+  const startTime = Date.now()
+  const clientIP = req.clientIP ||
+    extractClientIP(req)
+
+  // Check Redis cache first
+  const cacheKey = cache.KEYS.ipDeep(clientIP)
+  const cached = await cache.get(cacheKey)
+
+  if (cached) {
+    return res.status(200).json({
+      success: true,
+      data: {
+        ...cached,
+        fromCache: true,
+        responseTime:
+          (Date.now() - startTime) + 'ms'
+      }
     })
   }
 
-  const startTime = Date.now()
+  // Three tier fallback chain
+  const strategies = [
+    {
+      name: 'ip-api',
+      fn: () => fetchIPAPIDeep(clientIP)
+    },
+    {
+      name: 'ipwho',
+      fn: () => fetchIPWhoDeep(clientIP)
+    },
+    {
+      name: 'maxmind',
+      fn: () => fetchMaxMindDeep(clientIP)
+    }
+  ]
 
-  Object.entries(CORS_HEADERS).forEach(
-    ([key, value]) => res.setHeader(key, value)
-  )
-
+  const errors = []
   let rawData = null
-  let dataSource = null
+  let strategyUsed = null
 
-  // Try primary then fallback
-  try {
-    rawData = await fetchDeepIntelligence()
-    dataSource = 'primary'
-  } catch (primaryError) {
+  for (const strategy of strategies) {
     try {
-      rawData = await fetchDeepIntelligenceFallback()
-      dataSource = 'fallback'
-    } catch (fallbackError) {
-      return res.status(503).json({
-        success: false,
-        error: 'All deep intelligence sources failed',
-        details: {
-          primary: primaryError.message,
-          fallback: fallbackError.message
-        },
-        timestamp: new Date().toISOString(),
-        responseTime: (Date.now() - startTime) + 'ms'
+      rawData = await strategy.fn()
+      strategyUsed = strategy.name
+      break
+    } catch (error) {
+      errors.push({
+        strategy: strategy.name,
+        error: error.message
       })
     }
   }
 
-  // Extract ASN number
-  const rawAsn = rawData.connection?.asn ||
-    rawData.as?.replace(/[^0-9]/g, '') ||
-    null
+  if (!rawData) {
+    return res.status(503).json({
+      success: false,
+      error: 'All deep intelligence strategies failed',
+      details: errors,
+      timestamp: new Date().toISOString(),
+      responseTime:
+        (Date.now() - startTime) + 'ms'
+    })
+  }
 
-  const asnNumber = rawAsn
-    ? parseInt(rawAsn, 10)
-    : null
-
-  // Extract organization name
-  const orgName = rawData.connection?.org ||
-    rawData.connection?.isp ||
-    rawData.org ||
-    rawData.isp ||
-    null
-
-  // Extract country code
-  const countryCode = rawData.country_code ||
-    rawData.countryCode ||
-    null
-
-  // Run all classifications
-  const asnType = classifyAsnType(asnNumber, orgName)
-  const networkTier = classifyNetworkTier(
-    asnNumber,
-    orgName
-  )
-  const routeOrigin = classifyRouteOrigin(
-    asnType,
-    orgName
-  )
-  const allocationRegistry = classifyRegistry(
-    countryCode
-  )
-  const bgpRouteStatus = 'active'
-  const networkHealthScore = computeNetworkHealthScore(
-    networkTier,
-    asnType,
-    bgpRouteStatus,
-    routeOrigin
+  // Build complete deep intelligence
+  const deepData = await buildDeepIntelligence(
+    rawData,
+    clientIP
   )
 
-  // Known datacenter detection
-  const knownDatacenter = DATACENTER_ASNS[asnNumber]
-    || null
+  const enriched = {
+    ...deepData,
+    fetchedAt: new Date().toISOString(),
+    dataSource: strategyUsed,
+    strategyErrors: errors.length > 0
+      ? errors
+      : undefined
+  }
 
-  // Known mobile carrier detection
-  const knownMobileCarrier = MOBILE_ASNS[asnNumber]
-    || null
-
-  // Build IP range estimate
-  const ipParts = (rawData.ip || '').split('.')
-  const ipRange = ipParts.length === 4
-    ? `${ipParts[0]}.${ipParts[1]}.0.0/16`
-    : null
-
-  // Estimate peering count from tier
-  const estimatedPeeringCount = networkTier === 'Tier 1'
-    ? '100+'
-    : networkTier === 'Tier 2'
-    ? '20-100'
-    : '1-20'
-
-  // Upstream provider inference
-  const upstreamProvider = networkTier === 'Tier 3'
-    ? 'Regional upstream provider'
-    : networkTier === 'Tier 2'
-    ? 'Tier 1 transit provider'
-    : 'Direct internet exchange'
+  // Cache for 24 hours
+  await cache.set(
+    cacheKey,
+    enriched,
+    cache.TTL.IP_DEEP
+  )
 
   const responseTime = Date.now() - startTime
 
   return res.status(200).json({
     success: true,
     data: {
-      // Core ASN data
-      asn: asnNumber ? `AS${asnNumber}` : null,
-      asnNumber: asnNumber,
-      asnOwner: knownDatacenter ||
-        knownMobileCarrier ||
-        orgName,
-      asnType: asnType,
-      knownProvider: knownDatacenter ||
-        knownMobileCarrier ||
-        null,
-
-      // Network classification
-      networkTier: networkTier,
-      routeOrigin: routeOrigin,
-      allocationRegistry: allocationRegistry,
-      bgpRouteStatus: bgpRouteStatus,
-      networkAnnouncementStatus: 'announced',
-
-      // Network topology
-      ipRange: ipRange,
-      estimatedPeeringCount: estimatedPeeringCount,
-      upstreamProvider: upstreamProvider,
-
-      // Scores
-      networkHealthScore: networkHealthScore,
-
-      // Raw enrichment
-      rawOrg: orgName,
-      countryCode: countryCode,
-
-      // Meta
-      fetchedAt: new Date().toISOString(),
-      responseTime: responseTime + 'ms',
-      dataSource: dataSource
+      ...enriched,
+      fromCache: false,
+      responseTime: responseTime + 'ms'
     }
   })
 }
