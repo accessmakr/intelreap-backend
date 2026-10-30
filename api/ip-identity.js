@@ -263,7 +263,10 @@ module.exports = async (req, res) => {
 
   // Check Redis cache first
   const cacheKey = cache.KEYS.ipIdentity(clientIP)
-  const cached = await cache.get(cacheKey)
+  // On Cloudflare the answer is built from the request itself in
+  // a millisecond, so it is never cached (no stale answers).
+  const useCache = !cfGeo.available(req)
+  const cached = useCache ? await cache.get(cacheKey) : null
 
   if (cached) {
     return res.status(200).json({
@@ -311,11 +314,13 @@ module.exports = async (req, res) => {
       }
 
       // Cache successful result
-      await cache.set(
-        cacheKey,
-        enriched,
-        cache.TTL.IP_IDENTITY
-      )
+      if (useCache) {
+        await cache.set(
+          cacheKey,
+          enriched,
+          cache.TTL.IP_IDENTITY
+        )
+      }
 
       const responseTime =
         Date.now() - startTime

@@ -359,7 +359,9 @@ module.exports = async (req, res) => {
 
   // Check Redis cache first
   const cacheKey = cache.KEYS.ipDeep(clientIP)
-  const cached = await cache.get(cacheKey)
+  // Built from the request itself on Cloudflare: never cached.
+  const useCache = !cfGeo.available(req)
+  const cached = useCache ? await cache.get(cacheKey) : null
 
   if (cached) {
     return res.status(200).json({
@@ -440,11 +442,13 @@ module.exports = async (req, res) => {
   }
 
   // Cache for 24 hours
-  await cache.set(
-    cacheKey,
-    enriched,
-    cache.TTL.IP_DEEP
-  )
+  if (useCache) {
+    await cache.set(
+      cacheKey,
+      enriched,
+      cache.TTL.IP_DEEP
+    )
+  }
 
   const responseTime = Date.now() - startTime
 
