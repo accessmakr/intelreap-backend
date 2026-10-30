@@ -64,7 +64,19 @@ const extractClientIP = (req) => {
 
 // Build IP range from IP address
 const buildIPRange = (ip) => {
-  if (!ip || ip.includes(':')) return null
+  if (ip && ip.includes(':')) {
+    // IPv6: first 48 bits (the usual site allocation)
+    const [head, tail = ''] = ip.split('::')
+    const h = head ? head.split(':') : []
+    const t = tail ? tail.split(':') : []
+    const full = ip.includes('::')
+      ? [...h, ...Array(8 - h.length - t.length).fill('0'), ...t]
+      : h
+    if (full.length !== 8) return null
+    const g = full.slice(0, 3).map(x => x.replace(/^0+(?=.)/, ''))
+    return `${g.join(':')}::/48`
+  }
+  if (!ip) return null
   const parts = ip.split('.')
   if (parts.length !== 4) return null
   return `${parts[0]}.${parts[1]}.0.0/16`
@@ -210,8 +222,8 @@ const buildDeepIntelligence = async (
 ) => {
   const asnNumber = rawData.asn
     ? parseInt(
-        String(rawData.asn)
-          .replace(/[^0-9]/g, ''),
+        (String(rawData.asn).match(/AS(\d+)/i) ||
+          [null, String(rawData.asn).replace(/[^0-9]/g, '')])[1],
         10
       )
     : null
