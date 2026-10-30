@@ -2,6 +2,7 @@ const fetch = require('node-fetch')
 const cache = require('../lib/cache')
 const geoip = require('../lib/geoip')
 const validator = require('../lib/request-validator')
+const cfGeo = require('../lib/cf-geo')
 
 const REQUEST_TIMEOUT_MS = 8000
 
@@ -277,11 +278,20 @@ module.exports = async (req, res) => {
   }
 
   // Execute three tier fallback chain
-  const strategies = [
-    { name: 'ip-api', fn: () => fetchIPAPI(clientIP) },
-    { name: 'ipwho', fn: () => fetchIPWho(clientIP) },
-    { name: 'maxmind', fn: () => fetchMaxMind(clientIP) }
-  ]
+  // On Cloudflare the request already carries
+  // location and network data: no outside call.
+  const strategies = cfGeo.available(req)
+    ? [
+        {
+          name: 'cloudflare',
+          fn: async () => cfGeo.identity(req, clientIP)
+        }
+      ]
+    : [
+        { name: 'ip-api', fn: () => fetchIPAPI(clientIP) },
+        { name: 'ipwho', fn: () => fetchIPWho(clientIP) },
+        { name: 'maxmind', fn: () => fetchMaxMind(clientIP) }
+      ]
 
   const errors = []
 

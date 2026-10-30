@@ -38,6 +38,9 @@ module.exports = async (req, res) => {
 
       // Check 1 — Verify fetch capability
       (async () => {
+        if (require('../lib/runtime').isWorkers) {
+          return { status: 'ok', reachable: true, latency: 0 }
+        }
         const controller = new AbortController()
         const timeout = setTimeout(
           () => controller.abort(), 3000
@@ -114,8 +117,8 @@ module.exports = async (req, res) => {
       version: SYSTEM_VERSION,
       timestamp: new Date().toISOString(),
       responseTime: responseTime + 'ms',
-      environment: process.env.VERCEL_ENV || 'development',
-      region: process.env.VERCEL_REGION || 'unknown',
+      environment: process.env.VERCEL_ENV || (require('../lib/runtime').isWorkers ? 'cloudflare' : 'development'),
+      region: process.env.VERCEL_REGION || (req.cf && req.cf.colo) || 'unknown',
       subsystems: {
         network: {
           status: fetchStatus,

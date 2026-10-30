@@ -2,6 +2,7 @@ const fetch = require('node-fetch')
 const cache = require('../lib/cache')
 const geoip = require('../lib/geoip')
 const asnDb = require('../lib/asn-database')
+const cfGeo = require('../lib/cf-geo')
 const validator = require('../lib/request-validator')
 
 const REQUEST_TIMEOUT_MS = 8000
@@ -361,20 +362,27 @@ module.exports = async (req, res) => {
   }
 
   // Three tier fallback chain
-  const strategies = [
-    {
-      name: 'ip-api',
-      fn: () => fetchIPAPIDeep(clientIP)
-    },
-    {
-      name: 'ipwho',
-      fn: () => fetchIPWhoDeep(clientIP)
-    },
-    {
-      name: 'maxmind',
-      fn: () => fetchMaxMindDeep(clientIP)
-    }
-  ]
+  const strategies = cfGeo.available(req)
+    ? [
+        {
+          name: 'cloudflare',
+          fn: async () => cfGeo.deepRaw(req, clientIP)
+        }
+      ]
+    : [
+        {
+          name: 'ip-api',
+          fn: () => fetchIPAPIDeep(clientIP)
+        },
+        {
+          name: 'ipwho',
+          fn: () => fetchIPWhoDeep(clientIP)
+        },
+        {
+          name: 'maxmind',
+          fn: () => fetchMaxMindDeep(clientIP)
+        }
+      ]
 
   const errors = []
   let rawData = null

@@ -1,0 +1,12 @@
+{
+  "name": "intelreap-backend",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "node-fetch": "./src/shims/node-fetch.js",
+    "maxmind": "./src/shims/empty.js",
+    "@upstash/redis": "./src/shims/empty.js"
+  },
+  "observability": { "enabled": true }
+}
