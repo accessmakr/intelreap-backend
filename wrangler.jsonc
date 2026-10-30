@@ -3,6 +3,7 @@
   "main": "src/worker.js",
   "compatibility_date": "2025-09-01",
   "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
   "alias": {
     "node-fetch": "./src/shims/node-fetch.js",
     "maxmind": "./src/shims/empty.js",
