@@ -47,7 +47,7 @@ const corsHeaders = (origin) => {
   if (origin) {
     h.set('Access-Control-Allow-Origin', origin)
     h.set('Vary', 'Origin')
-    h.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+    h.set('Access-Control-Allow-Methods', 'GET, HEAD, POST, OPTIONS')
     h.set('Access-Control-Allow-Headers', 'Content-Type')
     h.set('Access-Control-Max-Age', '86400')
   }
@@ -100,7 +100,8 @@ const buildReq = async (request, url, env) => {
     try { body = text ? JSON.parse(text) : {} } catch { body = {} }
   }
   return {
-    method: request.method,
+    // HEAD is answered like GET, without a body
+    method: request.method === 'HEAD' ? 'GET' : request.method,
     headers,
     url: url.pathname + url.search,
     query: Object.fromEntries(url.searchParams),
@@ -168,7 +169,10 @@ export default {
     res.headers.set('X-Content-Type-Options', 'nosniff')
     res.headers.set('Cache-Control', 'no-store')
 
-    const nullBody = res.statusCode === 204 || res.statusCode === 304
+    const nullBody =
+      res.statusCode === 204 ||
+      res.statusCode === 304 ||
+      request.method === 'HEAD'
     return new Response(nullBody ? null : (res.body == null ? '' : res.body), {
       status: res.statusCode,
       headers: res.headers
