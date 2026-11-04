@@ -25,3 +25,6 @@ npm-debug.log*
 # Cloudflare
 .wrangler/
 .dev.vars
+
+# Built at deploy time from data/geoip (scripts/build-geo-shards.js)
+public/geo/

@@ -9,5 +9,13 @@
     "maxmind": "./src/shims/empty.js",
     "@upstash/redis": "./src/shims/empty.js"
   },
+  "build": {
+    "command": "node scripts/build-geo-shards.js"
+  },
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": true
+  },
   "observability": { "enabled": true }
 }

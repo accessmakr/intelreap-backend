@@ -11,6 +11,7 @@ import proxyIntelligence from '../api/proxy-intelligence.js'
 import aiSummary from '../api/ai-summary.js'
 import headersEcho from '../api/headers-echo.js'
 import ipv6Check from '../api/ipv6-check.js'
+import geoLocal from '../lib/geo-local.js'
 
 const ROUTES = {
   '/api/health': health,
@@ -107,6 +108,7 @@ const buildReq = async (request, url, env) => {
     query: Object.fromEntries(url.searchParams),
     body,
     cf: request.cf,
+    geoLookup: (ip) => geoLocal.lookup(env, ip),
     connection: { remoteAddress: ip },
     socket: { remoteAddress: ip }
   }
