@@ -154,7 +154,13 @@ const extractDatabase = async (
     db.filename
   )
 
+  // Skip the existing file at the target path: it sorts
+  // first and would be "moved" onto itself, after which the
+  // freshly downloaded copy is deleted with its dated folder.
   for (const extractedFile of extractedFiles) {
+    if (path.resolve(extractedFile) === path.resolve(targetFile)) {
+      continue
+    }
     if (
       path.basename(extractedFile) === db.filename
     ) {
@@ -164,6 +170,10 @@ const extractDatabase = async (
       )
       break
     }
+  }
+
+  if (!extractedFiles.some(f => path.resolve(f) !== path.resolve(targetFile) && path.basename(f) === db.filename)) {
+    throw new Error(`No freshly downloaded ${db.filename} found in the archive`)
   }
 
   // Clean up temp files
