@@ -67,7 +67,7 @@ Frontend: `main` is live. `panel-visuals` (1 commit, new VPN/device/graphics/sec
 ## 9. Frontend notes
 - Netlify publishes the whole repo: `/docs/*.md` and `/scripts/content/base.html` are probably reachable on the public site. Suggested `netlify.toml` 404 rule for `/docs/*` and `/scripts/*` (coordinate with the other agent, who edits `netlify.toml`).
 - Chart start-up is in `assets/js/visualizations/chart-boot.js`; captions in `viz-captions.js`; panel visuals in `panel-visuals.js` (branch only).
-- Release helpers run on the owner's phone (`~/release.sh`, `~/work-tmp/live_check.py`). **Copies are saved in this repo at `docs/phone-scripts/`** (see the README there). The four `~/work-tmp/verify*.py` files they call are still not saved anywhere. Known problems: it blocks on `scripts/content/base.html`, hard-codes 35 sitemap URLs and a 60-character title check, and hard-codes service worker version 1.7.0. Intended fix: make the title and sitemap checks warnings. Merging by hand has been used instead (tag first, then `git merge`, then run the live check).
+- Release helpers run on the owner's phone; **the master copies are in this repo at `docs/phone-scripts/`** (README there has the one-line install). Owner's rules: no hard-coded counts (sitemap size) and no rules about article titles in any check.
 - Search Console and keyword work: see the frontend `docs/` folder (other agent).
 
 ## 10. Open work (rough priority)

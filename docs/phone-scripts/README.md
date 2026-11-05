@@ -1,8 +1,16 @@
 # Phone scripts (frontend release tooling)
 
-Copies of the two scripts the owner runs in Termux on their phone, saved here because they existed nowhere else. **These are copies; the working versions live on the phone** at `~/release.sh` and `~/work-tmp/live_check.py`. If you change one, update the other place too.
+**This folder is the master copy.** The phone runs copies of these files. After any change here, reinstall on the phone with the one-liner at the bottom.
 
 - `release.sh <branch> <live-file-path> <text-that-appears-when-live>`: guard (clean tree, branch pushed), static checks, tag `pre-release-<branch>`, merge into frontend `main`, push, wait for Netlify to serve the marker text, then run the live check. The undo command is printed at the end.
-- `live_check.py [site]`: live checks (assets, sitemap pages, titles, canonicals, hubs, legal pages, 410/301/404 rules, headers). `release.sh` rewrites `~/work-tmp/live_check.py` from its embedded copy on every run, so **edit the copy inside `release.sh`**, then regenerate this file with `awk "/<<'PYR1'/{f=1;next} /^PYR1\$/{f=0} f" release.sh > live_check.py`.
+- `live_check.py [site]`: live checks (assets, sitemap pages, canonicals, hubs, legal pages, 410/301/404 rules, headers). Installed to `~/work-tmp/live_check.py`; `release.sh` no longer carries its own copy.
+- `verify0.py`, `verify0b.py`, `verify1.py`, `verify6b.py`: static checks run by `release.sh` from `~/work-tmp/` (design tokens and navigation; redirects, canonicals and links; asset references; translations).
 
-Known problems (see `../HANDOFF.md`): the check "sitemap lists 35 URLs" is hard-coded (the sitemap has grown); the title check fails on titles over 60 characters (two keyword-mapped articles exceed it, by design); the static check stage also runs `~/work-tmp/verify0.py`, `verify0b.py`, `verify1.py` and `verify6b.py` if they exist, and **those four files are not saved anywhere** (one of them hard-codes service worker version 1.7.0); `scripts/content/base.html` blocks the redirect check. Intended fix: make title length and sitemap count warnings.
+Rules for the checks (owner's instruction): **no hard-coded counts and no rules about article titles.** The sitemap is checked for being non-empty and free of duplicates, never for a fixed number. Article titles belong to the content owner and are only checked for existing. The service worker is checked for having a version, not for a specific one.
+
+Not saved anywhere: `~/work-tmp/flat.js`, which `verify6b.py` runs to flatten the English translations (paste it if you want it saved).
+
+## Install or update on the phone (one line, no login needed)
+```
+mkdir -p ~/work-tmp && B=https://raw.githubusercontent.com/accessmakr/intelreap-backend/main/docs/phone-scripts && curl -fsSL $B/release.sh -o ~/release.sh && for f in live_check.py verify0.py verify0b.py verify1.py verify6b.py; do curl -fsSL $B/$f -o ~/work-tmp/$f; done && echo "scripts installed"
+```
