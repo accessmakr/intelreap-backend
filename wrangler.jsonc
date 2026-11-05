@@ -10,7 +10,7 @@
     "@upstash/redis": "./src/shims/empty.js"
   },
   "build": {
-    "command": "node scripts/build-geo-shards.js"
+    "command": "node scripts/fetch-geo-data.js && node scripts/build-geo-shards.js"
   },
   "assets": {
     "directory": "./public",

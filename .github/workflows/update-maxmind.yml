@@ -1,17 +1,26 @@
 name: Update MaxMind Databases
 
+# Every two weeks (1st and 15th). The databases are NOT committed to
+# the code branches any more (that added ~60 MB of history per run).
+# Instead the newest files are force-pushed to the single branch
+# `geo-data` (no history kept), and a one-line stamp file is pushed
+# to the branch Cloudflare builds so it rebuilds and downloads them.
 on:
   schedule:
-    - cron: '0 2 * * 2'
+    - cron: '0 3 1,15 * *'
   workflow_dispatch:
     inputs:
-      force_update:
-        description: 'Force update even if recent'
+      build_branch:
+        description: 'Branch to stamp so Cloudflare rebuilds'
         required: false
-        default: 'false'
+        default: 'cloudflare-worker'
 
 permissions:
   contents: write
+
+env:
+  # Change to main when Cloudflare's production branch becomes main.
+  DEFAULT_BUILD_BRANCH: cloudflare-worker
 
 jobs:
   update:
@@ -22,8 +31,6 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -41,27 +48,44 @@ jobs:
 
       - name: Verify database files
         run: |
-          echo "Checking downloaded files..."
           ls -lh data/geoip/
-          echo "GeoLite2-City.mmdb size:"
-          du -h data/geoip/GeoLite2-City.mmdb
-          echo "GeoLite2-ASN.mmdb size:"
-          du -h data/geoip/GeoLite2-ASN.mmdb
+          for f in GeoLite2-City.mmdb GeoLite2-ASN.mmdb; do
+            test "$(stat -c%s data/geoip/$f)" -gt 1000000 || { echo "$f too small"; exit 1; }
+          done
 
-      - name: Commit and push database files
+      - name: Publish files to the geo-data branch (history discarded)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git config --local user.email \
-            "action@github.com"
-          git config --local user.name \
-            "GitHub Action"
-          git add data/geoip/
-          git diff --staged --quiet || \
-            git commit -m \
-            "chore: update MaxMind databases $(date -u +%Y-%m-%d)"
-          git push
+          set -e
+          rm -rf /tmp/geo && mkdir /tmp/geo
+          cp data/geoip/GeoLite2-City.mmdb data/geoip/GeoLite2-ASN.mmdb /tmp/geo/
+          date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/geo/BUILT.txt
+          cd /tmp/geo
+          git init -q -b geo-data
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add .
+          git commit -qm "GeoLite2 data $(date -u +%Y-%m-%d)"
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" geo-data
+
+      - name: Stamp the build branch so Cloudflare rebuilds
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_BRANCH: ${{ inputs.build_branch }}
+        run: |
+          set -e
+          BRANCH="${INPUT_BRANCH:-$DEFAULT_BUILD_BRANCH}"
+          rm -rf /tmp/stamp
+          git clone -q --depth 1 -b "$BRANCH" "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" /tmp/stamp
+          cd /tmp/stamp
+          date -u +%Y-%m-%dT%H:%M:%SZ > data/geo-stamp.txt
+          git config user.email "action@github.com"
+          git config user.name "GitHub Action"
+          git add data/geo-stamp.txt
+          git commit -qm "chore: geo data refreshed $(date -u +%Y-%m-%d), rebuild Worker"
+          git push -q origin "$BRANCH"
 
       - name: Report status
         if: always()
-        run: |
-          echo "Update completed at $(date -u)"
-          echo "Status: ${{ job.status }}"
+        run: echo "Finished $(date -u), status ${{ job.status }}"
