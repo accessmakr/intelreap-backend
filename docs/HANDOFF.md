@@ -1,6 +1,6 @@
 # IntelReap: infrastructure handoff and history
 
-Read this first if you are a new agent or developer. Keep it current: **whenever you change infrastructure, deploys, data sources, branches or decisions, update this file in the same commit.** Last updated: 2026-11-05.
+Read this first if you are a new agent or developer. Keep it current: **whenever you change infrastructure, deploys, data sources, branches or decisions, update this file in the same commit.** Last updated: 2026-11-05 (option B pipeline added).
 
 No secret values belong in this file, in commits or in chat. Secret *names* are fine.
 
@@ -31,6 +31,7 @@ The frontend points at the Worker in `assets/js/config.js` and `service-worker.j
 - `scripts/build-geo-shards.js`: turns `data/geoip/*.mmdb` into `public/geo/**` (about 36 MB, about 1,280 small files, gitignored). Run automatically by wrangler's `build.command` on every deploy. Values live once in `public/geo/<db>/values/`. IPv6 is stored at /48 granularity.
 - `wrangler.jsonc`: entry, aliases (`maxmind`, `@upstash/redis`, `node-fetch` are replaced by shims on the Worker), `assets` with `run_worker_first: true` (so the shard files are never public), build command.
 - `data/geoip/GeoLite2-City.mmdb`, `GeoLite2-ASN.mmdb`: MaxMind data, committed (owner wants them kept). `data/asn-classes.json`: ASN classes from public-domain ipverse data.
+- `scripts/fetch-geo-data.js`: run first by the Cloudflare build; downloads the newest MaxMind files from the `geo-data` branch (raw.githubusercontent.com). If anything fails it falls back to the files committed in `data/geoip/`, so a build never breaks here. `GEO_DATA_TOKEN` (build variable) is needed only if the repo is made private.
 - Workflows (`.github/workflows/`): `update-maxmind.yml`, `sync-peeringdb.yml`, `update-asn-classes.yml`.
 - API extras: `GET /api/ip-identity?ip=<IPv4|IPv6>` looks up another address (used for the dual-address display). Invalid values are ignored.
 
@@ -54,12 +55,13 @@ Known data limit: MaxMind (and Cloudflare) place MTN Nigeria IPv6 addresses wron
 ## 7. Scheduled jobs and their history
 - **MaxMind weekly job bug (fixed 2026-11-04, `3ac3e6a`):** the download script found the old file first, moved it onto itself and deleted the fresh download, so it reported success every week while the data stayed at the May 2026 build. Fixed; data refreshed (City built 2026-11-03, ASN 2026-11-04).
 - **Repo growth:** now that the job works, each update adds about 60 MB of binary to git history. Repo was 66 MB on 2026-11-05. Deleting old files does not shrink history; only a history rewrite does (not wanted unless the repo nears 1 GB).
-- **Planned fix, option B (owner quoted it as their choice, not built yet):** the scheduled job (every two weeks instead of weekly; the GeoLite2 licence, as far as known, expects updates within about 30 days: verify) force-replaces a branch `geo-data` containing only the newest database files; Cloudflare's build downloads from that branch; `main` stops receiving 60 MB commits. If the repo is made private, Cloudflare then needs a read token as a build variable.
+- **Option B (built and tested 2026-11-05):** `update-maxmind.yml` now runs on the 1st and 15th of each month. It downloads the databases with the `MAXMIND_*` secrets, **force-pushes only the two files plus `BUILT.txt` to the branch `geo-data` as a single orphan commit** (no history), then pushes a one-line stamp (`data/geo-stamp.txt`) to the build branch so Cloudflare rebuilds; the build runs `fetch-geo-data.js` then `build-geo-shards.js`. The code branches no longer receive 60 MB commits. The copies in `data/geoip/` stay committed as a frozen fallback and will get older; that is intentional (owner wants them kept). Force-pushed old versions become unreachable and GitHub frees them over time, not instantly, so the repo size figure may lag. The stamp target is `DEFAULT_BUILD_BRANCH` in the workflow (currently `cloudflare-worker`; **change to `main` when Cloudflare's production branch becomes `main`**) or the `build_branch` input of a manual run. Scheduled runs only start once this workflow file is on `main`, so until `cloudflare-worker` is merged into `main` the old weekly behaviour stays on `main` (it still commits to `main`); run it manually meanwhile with Actions > Update MaxMind Databases > Run workflow on `cloudflare-worker`. Licence note: the GeoLite2 terms are believed to expect updates within about 30 days; verify.
+- If the repo becomes private: add build variable `GEO_DATA_TOKEN` (a read-only token) in Cloudflare so the fetch step can still download.
 - `sync-peeringdb.yml` still writes to Redis, which the Worker ignores, so `peeringdbData` is empty on the Worker. To be moved to a file.
 - `update-asn-classes.yml` exists only on `cloudflare-worker`; **GitHub runs schedules only from the default branch (`main`), so it will not run until merged.**
 
 ## 8. Branch and merge state (2026-11-05)
-Backend: `main` = fixed MaxMind job plus fresh data (`538ed0f`). `cloudflare-worker` = everything above, 11 commits ahead of `main`, nothing missing. `geo-shards` = same commit as `cloudflare-worker` for the geo work. `fix-maxmind-download` = merged. Not yet merged: `cloudflare-worker` into `main`.
+Backend: `main` = fixed MaxMind job plus fresh data (`538ed0f`). `cloudflare-worker` = everything above, 11 commits ahead of `main`, nothing missing. `geo-shards` and `geo-data-pipeline` = merged into `cloudflare-worker`. `geo-data` = data-only branch maintained by the workflow (do not edit by hand). `fix-maxmind-download` = merged. Not yet merged: `cloudflare-worker` into `main`.
 Frontend: `main` is live. `panel-visuals` (1 commit, new VPN/device/graphics/security panel visuals, owner-approved from previews) is **not merged**; it merges cleanly with no overlapping files. The other agent commits straight to `main`, so always `git pull` first.
 
 ## 9. Frontend notes
@@ -70,7 +72,7 @@ Frontend: `main` is live. `panel-visuals` (1 commit, new VPN/device/graphics/sec
 
 ## 10. Open work (rough priority)
 1. Merge `panel-visuals`; merge backend `cloudflare-worker` into `main` after a few clean days.
-2. MaxMind option B (above) and the two-week schedule; move PeeringDB to a file.
+2. Move PeeringDB to a file (the MaxMind option B pipeline is done).
 3. Show both IPv4 and IPv6 (use `?ip=`) with an "approximate location" note; add the MaxMind credit line (footer, About "Data sources", Privacy), because MaxMind data is now used live. Needs the owner's wording approval.
 4. Local summary engine (no scan data to any AI provider) and matching Privacy Policy text. Not started; the AI providers' model names are retired, so summaries currently fall back and the city shows "unknown".
 5. Small visual fixes: route-diagram label overlap, odd stability chart shape, faint "Not Supported" tiles in dark mode, live charts restarting after a theme switch.
