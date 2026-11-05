@@ -1,6 +1,6 @@
 # IntelReap: infrastructure handoff and history
 
-Read this first if you are a new agent or developer. Keep it current: **whenever you change infrastructure, deploys, data sources, branches or decisions, update this file in the same commit.** Last updated: 2026-11-05 (option B pipeline added).
+Read this first if you are a new agent or developer. Keep it current: **whenever you change infrastructure, deploys, data sources, branches or decisions, update this file in the same commit.** Last updated: 2026-11-05 (second address, on-device summaries, licence notes).
 
 No secret values belong in this file, in commits or in chat. Secret *names* are fine.
 
@@ -62,7 +62,7 @@ Known data limit: MaxMind (and Cloudflare) place MTN Nigeria IPv6 addresses wron
 
 ## 8. Branch and merge state (2026-11-05)
 Backend: `main` = fixed MaxMind job plus fresh data (`538ed0f`). `cloudflare-worker` = everything above, 11 commits ahead of `main`, nothing missing. `geo-shards` and `geo-data-pipeline` = merged into `cloudflare-worker`. `geo-data` = data-only branch maintained by the workflow (do not edit by hand). `fix-maxmind-download` = merged. `cloudflare-worker` was merged into `main` on 2026-11-05 (both branches now identical in content; keep building production from `cloudflare-worker` until the owner switches Cloudflare's production branch to `main`, then change `DEFAULT_BUILD_BRANCH` in the workflow).
-Frontend: `main` is live. `panel-visuals` (1 commit, new VPN/device/graphics/security panel visuals, owner-approved from previews) is **not merged**; it merges cleanly with no overlapping files. The other agent commits straight to `main`, so always `git pull` first.
+Frontend: `main` is live and contains `panel-visuals`, `second-address` and `local-summary` (rollback tags `pre-release-panel-visuals`, `pre-release-second-address`, `pre-release-local-summary`). The other agent commits straight to `main`, so always `git pull` first.
 
 ## 9. Frontend notes
 - Netlify publishes the whole repo: `/docs/*.md` and `/scripts/content/base.html` are probably reachable on the public site. Suggested `netlify.toml` 404 rule for `/docs/*` and `/scripts/*` (coordinate with the other agent, who edits `netlify.toml`).
@@ -70,15 +70,27 @@ Frontend: `main` is live. `panel-visuals` (1 commit, new VPN/device/graphics/sec
 - Release helpers run on the owner's phone; **the master copies are in this repo at `docs/phone-scripts/`** (README there has the one-line install). Owner's rules: no hard-coded counts (sitemap size) and no rules about article titles in any check.
 - Search Console and keyword work: see the frontend `docs/` folder (other agent).
 
-## 10. Open work (rough priority)
-1. Merge frontend `panel-visuals`. (Backend merge into `main` is done.)
-2. Move PeeringDB to a file (the MaxMind option B pipeline is done).
-3. Show both IPv4 and IPv6 (use `?ip=`) with an "approximate location" note; add the MaxMind credit line (footer, About "Data sources", Privacy), because MaxMind data is now used live. Needs the owner's wording approval.
-4. Local summary engine (no scan data to any AI provider) and matching Privacy Policy text. Not started; the AI providers' model names are retired, so summaries currently fall back and the city shows "unknown".
-5. Small visual fixes: route-diagram label overlap, odd stability chart shape, faint "Not Supported" tiles in dark mode, live charts restarting after a theme switch.
-6. Backend cosmetics: `classificationSource: "ipapi-flags"` label, `strategyUsed: "cloudflare"` label, "Paid API Consulted" shows Yes whenever a mismatch triggers the check.
-7. AdSense: trading-name line, verification tag, ads.txt, EEA/UK consent, re-check Search Console.
-8. Unchecked: `proxy-intelligence` returned 403 on GET and 405 on POST in a local test; compare against the legacy Vercel behaviour.
+## 10. Done on 2026-11-05 (frontend)
+- `panel-visuals` merged (VPN, device, graphics, security panels), with fallbacks for `--seg`/`--chip` so the static checks pass.
+- **Second address:** `assets/js/engines/ip.js` `fetchAltAddress` finds the other family through `api.ipify.org` / `api6.ipify.org`, then calls `/api/ip-identity?ip=<other>`. Rendered by `canvas-2.js` into rows `c2-alt-row`, `c2-alt-loc-row`, `c2-accuracy-row` (homepage and `/intelligence/network-identity`). Silent on any failure.
+- **Summaries are written on the device** (`assets/js/engines/ai-summary.js`): no AI provider, no backend call, no "unknown" filler. The backend `ai-summary` endpoint is now unused (Groq/Gemini keys are not needed). Panel labels were renamed from "AI Analysis" to "Analysis". Only the English translation file was updated for the renamed Summary Source label; the other 23 languages still say "AI Summary Source".
+- **MaxMind credit** is on `about.html` (How it works) and in the Privacy Policy third-party list. Not in the footer or on every page, by the owner's request.
+- Privacy Policy, About, Terms, FAQ JSON-LD and the live-feed page were updated to match.
+
+## 10b. MaxMind licence notes (GeoLite EULA, read 2026-11-05; the current text is dated 2026-02-12; not legal advice)
+- Attribution is required where GeoLite data use is documented or advertised. Sentence used: "This product includes GeoLite Data created by MaxMind, available from https://www.maxmind.com."
+- Old database versions must be deleted within 30 days after a newer release. The frozen copies committed in `data/geoip/` and every old copy in git history conflict with that. Decision pending with the owner: remove the committed copies (the build then relies on the `geo-data` branch and keeps the previous Worker if the download fails).
+- Sharing the databases with others is restricted. **The backend repo is public, so the `geo-data` branch and the committed `.mmdb` files are publicly downloadable.** Recommended: make the backend repo private and add the `GEO_DATA_TOKEN` build variable in Cloudflare. Decision pending with the owner.
+
+## 10c. Open work (rough priority)
+1. Owner decisions in 10b (private repo; remove committed databases).
+2. Move PeeringDB to a file (the weekly job still writes to Redis, which the Worker ignores).
+3. Translations of the changed labels and legal text (English only so far); the "AI" wording remains in the 23 other languages' panel labels.
+4. Small visual fixes: route-diagram label overlap, odd stability chart shape, faint "Not Supported" tiles in dark mode, live charts restarting after a theme switch.
+5. Backend cosmetics: `classificationSource: "ipapi-flags"`, `strategyUsed: "cloudflare"`, "Paid API Consulted".
+6. AdSense: trading-name line ("Akin"), verification tag, ads.txt, EEA/UK consent, re-check Search Console.
+7. Unchecked: `proxy-intelligence` returned 403 on GET and 405 on POST in a local test; compare with legacy Vercel behaviour.
+8. Hide `/docs/*` and `/scripts/*` from the public site with a `netlify.toml` rule (coordinate with the other agent, who edits that file).
 
 ## 11. Secrets (names only)
 Cloudflare Worker secrets (optional): `GROQ_API_KEY`, `GEMINI_API_KEY`, `PROXYCHECK_API_KEY`, `IPQUALITYSCORE_API_KEY`. GitHub Actions secrets: `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` (cannot be read back; copy from the MaxMind account if needed elsewhere). Legacy Vercel/Upstash: `KV_REST_API_URL`, `KV_REST_API_TOKEN`. A GitHub token with wide scopes was pasted into chats and shared transcripts in the past; treat any token that appeared in chat as exposed and rotate it.
