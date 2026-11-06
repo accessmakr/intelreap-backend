@@ -1,10 +1,11 @@
 name: Update MaxMind Databases
 
-# Every two weeks (1st and 15th). The databases are NOT committed to
-# the code branches any more (that added ~60 MB of history per run).
-# Instead the newest files are force-pushed to the single branch
-# `geo-data` (no history kept), and a one-line stamp file is pushed
-# to the branch Cloudflare builds so it rebuilds and downloads them.
+# Every two weeks (1st and 15th). The MaxMind databases are never
+# committed to this public repository (the MaxMind licence forbids
+# sharing them). The newest files are force-pushed (history
+# discarded) to a PRIVATE repository named by the GEO_DATA_REPO
+# secret, and a one-line stamp file is pushed to the branch
+# Cloudflare builds so it rebuilds and downloads them.
 on:
   schedule:
     - cron: '0 3 1,15 * *'
@@ -53,21 +54,32 @@ jobs:
             test "$(stat -c%s data/geoip/$f)" -gt 1000000 || { echo "$f too small"; exit 1; }
           done
 
-      - name: Publish files to the geo-data branch (history discarded)
+      - name: Check the private data repository is configured
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEO_DATA_REPO: ${{ secrets.GEO_DATA_REPO }}
+          GEO_DATA_PUSH_TOKEN: ${{ secrets.GEO_DATA_PUSH_TOKEN }}
+        run: |
+          if [ -z "$GEO_DATA_REPO" ] || [ -z "$GEO_DATA_PUSH_TOKEN" ]; then
+            echo "GEO_DATA_REPO and GEO_DATA_PUSH_TOKEN secrets are not set. Nothing was published (the databases must never go into this public repository)."
+            exit 1
+          fi
+
+      - name: Publish files to the private data repository (history discarded)
+        env:
+          GEO_DATA_REPO: ${{ secrets.GEO_DATA_REPO }}
+          GEO_DATA_PUSH_TOKEN: ${{ secrets.GEO_DATA_PUSH_TOKEN }}
         run: |
           set -e
           rm -rf /tmp/geo && mkdir /tmp/geo
           cp data/geoip/GeoLite2-City.mmdb data/geoip/GeoLite2-ASN.mmdb /tmp/geo/
           date -u +%Y-%m-%dT%H:%M:%SZ > /tmp/geo/BUILT.txt
           cd /tmp/geo
-          git init -q -b geo-data
+          git init -q -b main
           git config user.email "action@github.com"
           git config user.name "GitHub Action"
           git add .
           git commit -qm "GeoLite2 data $(date -u +%Y-%m-%d)"
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" geo-data
+          git push -f "https://x-access-token:${GEO_DATA_PUSH_TOKEN}@github.com/${GEO_DATA_REPO}.git" main
 
       - name: Stamp the build branch so Cloudflare rebuilds
         env:
