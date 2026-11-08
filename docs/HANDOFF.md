@@ -80,15 +80,22 @@ Frontend: `main` is live and contains `panel-visuals`, `second-address` and `loc
 - Attribution is required where GeoLite data use is documented or advertised. Sentence used: "This product includes GeoLite Data created by MaxMind, available from https://www.maxmind.com."
 - Old database versions must be deleted within 30 days after a newer release, and the databases must not be shared with others. Owner decision (2026-11-05): keep the databases only in a private repository in a separate GitHub account; keep this code repository public; remove the committed copies, the public `geo-data` branch and the old history. Dry run of the history rewrite (git filter-repo, mirror copy) took the repo from 67 MB to 0.3 MB with no database files left and code identical apart from `data/geoip/`. To do after the private path is verified: take a backup bundle, delete branches `geo-data`, `geo-data-pipeline`, `geo-shards`, `fix-maxmind-download`, remove `data/geoip/` from the tree, rewrite history, force-push `main` and `cloudflare-worker`. The `lib/geoip.js` file name appears in the history listing only because of its path; it is code and stays.
 
-## 10c. Open work (rough priority)
-1. Finish the private data repository (owner creates the separate account, repo and keys; see section 7), then the cleanup in 10b.
+## 10c. Done on 2026-11-06/07 (frontend)
+- Header: IR logo (CSS `::before`, 28 px on phones, 32 px otherwise) beside the wordmark on every page; fluid wordmark and compact controls so logo, wordmark, search, theme, language and menu fit on one row from 320 px up (theme button hides at 340 px or less). Tested with the real Syne font. The sandbox cannot load Google Fonts, so tests need `@fontsource` copies (see how `/tmp/shoot.py` was built: Playwright + local servers; both servers must be started in the same command as the test).
+- Charts: numbers inside dials, vitals bars against their own targets, titles, collecting-data notes, capability labels fit, route diagram nodes named by role with the full text in a hover title, more readable unsupported tiles.
+- Captions on the homepage now follow each canvas's own id.
+- AdSense prep: `<meta name="google-adsense-account">` on the homepage only, `ads.txt`, and "a trading name of Akin" on About, Contact, Privacy and Terms (owner to confirm the wording). EEA/UK consent is NOT built: a Google-certified consent tool is required for EEA/UK ads (use Google's own "Privacy & messaging" in the AdSense account after approval).
+- The AI wording was removed from summary labels in all 24 languages (check native wording of the Swahili labels, which were edited by hand).
+
+## 10d. Open work (rough priority)
+1. Finish the private data repository (owner creates the separate account, repo and key; see section 7), then the cleanup in 10b. The 15 Nov job fails safely until then.
 2. Move PeeringDB to a file (the weekly job still writes to Redis, which the Worker ignores).
-3. Translations of the changed labels and legal text (English only so far); the "AI" wording remains in the 23 other languages' panel labels.
-4. Small visual fixes: route-diagram label overlap, odd stability chart shape, faint "Not Supported" tiles in dark mode, live charts restarting after a theme switch.
-5. Backend cosmetics: `classificationSource: "ipapi-flags"`, `strategyUsed: "cloudflare"`, "Paid API Consulted".
-6. AdSense: trading-name line ("Akin"), verification tag, ads.txt, EEA/UK consent, re-check Search Console.
-7. Unchecked: `proxy-intelligence` returned 403 on GET and 405 on POST in a local test; compare with legacy Vercel behaviour.
-8. Hide `/docs/*` and `/scripts/*` from the public site with a `netlify.toml` rule (coordinate with the other agent, who edits that file).
+3. Live charts restart their history after a theme switch.
+4. Backend cosmetics: `classificationSource: "ipapi-flags"`, `strategyUsed: "cloudflare"`, "Paid API Consulted".
+5. AdSense: apply for the account when ready; add the verification snippet Google gives; consent tool after approval; re-check Search Console.
+6. Unchecked: `proxy-intelligence` returned 403 on GET and 405 on POST in a local test; compare with legacy Vercel behaviour.
+7. Hide `/docs/*` and `/scripts/*` from the public site with a `netlify.toml` rule (coordinate with the other agent).
+8. Privacy Policy and other legal text are English only for the new wording.
 
 ## 11. Secrets (names only)
 GitHub Actions secrets for the data pipeline: `GEO_DATA_REPO` (owner/name of the private data repository), `GEO_DATA_PUSH_TOKEN` (fine-grained key with Contents read/write on that repository only). Cloudflare build variables: `GEO_DATA_REPO`, `GEO_DATA_TOKEN` (read-only key). Cloudflare Worker secrets (optional): `GROQ_API_KEY`, `GEMINI_API_KEY`, `PROXYCHECK_API_KEY`, `IPQUALITYSCORE_API_KEY`. GitHub Actions secrets: `MAXMIND_ACCOUNT_ID`, `MAXMIND_LICENSE_KEY` (cannot be read back; copy from the MaxMind account if needed elsewhere). Legacy Vercel/Upstash: `KV_REST_API_URL`, `KV_REST_API_TOKEN`. A GitHub token with wide scopes was pasted into chats and shared transcripts in the past; treat any token that appeared in chat as exposed and rotate it.
