@@ -90,11 +90,11 @@ Frontend: `main` is live and contains `panel-visuals`, `second-address` and `loc
 ## 10d. Open work (rough priority)
 1. Finish the private data repository (owner creates the separate account, repo and key; see section 7), then the cleanup in 10b. The 15 Nov job fails safely until then.
 2. Move PeeringDB to a file (the weekly job still writes to Redis, which the Worker ignores).
-3. Live charts restart their history after a theme switch.
-4. Backend cosmetics: `classificationSource: "ipapi-flags"`, `strategyUsed: "cloudflare"`, "Paid API Consulted".
+3. (done 2026-11-08) Stability chart history now survives a theme switch; the theme switch redraws charts in place, the page does not reload.
+4. Backend cosmetics: `strategyUsed: "cloudflare"` label (done 2026-11-08: `classificationSource` now `network-flags`; `paidAPIConsulted` is true only when a provider answered).
 5. AdSense: apply for the account when ready; add the verification snippet Google gives; consent tool after approval; re-check Search Console.
 6. Unchecked: `proxy-intelligence` returned 403 on GET and 405 on POST in a local test; compare with legacy Vercel behaviour.
-7. Hide `/docs/*` and `/scripts/*` from the public site with a `netlify.toml` rule (coordinate with the other agent).
+7. (done 2026-11-08) `/docs/*` and `/scripts/*` return 404 through `netlify.toml` rules at the top of the redirects list (the other agent edits that file too: keep them).
 8. Privacy Policy and other legal text are English only for the new wording.
 
 ## 11. Secrets (names only)

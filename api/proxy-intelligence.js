@@ -467,7 +467,8 @@ module.exports = async (req, res) => {
       : undefined,
 
     // Whether paid API was consulted
-    paidAPIConsulted: needsPaidAPI,
+    // true only when a provider actually answered (not merely attempted)
+    paidAPIConsulted: !!paidAPIResult,
 
     // IP info
     ip: clientIP,
