@@ -84,8 +84,15 @@ Frontend: `main` is live and contains `panel-visuals`, `second-address` and `loc
 - Header: IR logo (CSS `::before`, 28 px on phones, 32 px otherwise) beside the wordmark on every page; fluid wordmark and compact controls so logo, wordmark, search, theme, language and menu fit on one row from 320 px up (theme button hides at 340 px or less). Tested with the real Syne font. The sandbox cannot load Google Fonts, so tests need `@fontsource` copies (see how `/tmp/shoot.py` was built: Playwright + local servers; both servers must be started in the same command as the test).
 - Charts: numbers inside dials, vitals bars against their own targets, titles, collecting-data notes, capability labels fit, route diagram nodes named by role with the full text in a hover title, more readable unsupported tiles.
 - Captions on the homepage now follow each canvas's own id.
-- AdSense prep: `<meta name="google-adsense-account">` on the homepage only, `ads.txt`, and "a trading name of Akin" on About, Contact, Privacy and Terms (owner to confirm the wording). EEA/UK consent is NOT built: a Google-certified consent tool is required for EEA/UK ads (use Google's own "Privacy & messaging" in the AdSense account after approval).
+- AdSense prep: `<meta name="google-adsense-account">` on the homepage only and `ads.txt`. EEA/UK consent is NOT built: a Google-certified consent tool is required for EEA/UK ads (use Google's own "Privacy & messaging" in the AdSense account after approval).
 - The AI wording was removed from summary labels in all 24 languages (check native wording of the Swahili labels, which were edited by hand).
+
+## 10c2. Identity and E-E-A-T (owner decision 2026-11-08: Option B, brand only)
+- The site is presented as "IntelReap, an independent project". There is NO legal-entity claim ("IntelReap Information Technologies" was removed everywhere, including schema `legalName`, the footer line and the 24 translation files) and no trading-name line.
+- Public email `stmakarios@gmail.com` appears **only on `contact.html`**. Everywhere else the contact route is a hyperlink to `/contact` (footer link, legal pages, schema `contactPoint`). Do not paste the address elsewhere. The article template `scripts/content/base.html` was updated the same way; the 40 existing pages got the same mechanical clean-up (footer link and hidden schema only).
+- New page `/methodology` ("How IntelReap works"): per-panel sources, accuracy, freshness, independence, corrections, credits. Linked from About and in the sitemap (via the route generator). Its `.html` redirect is in `netlify.toml`.
+- For the content owner (other agent): articles still list the Organization as author with no named person. If person bylines are wanted later, that needs the owner's decision about showing a name.
+- `verify6b.py` no longer expects `footer.operated_by` (key removed).
 
 ## 10d. Open work (rough priority)
 1. Finish the private data repository (owner creates the separate account, repo and key; see section 7), then the cleanup in 10b. The 15 Nov job fails safely until then.

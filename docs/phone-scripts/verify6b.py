@@ -13,7 +13,7 @@ en = json.load(open(os.path.join(W, "en_flat.json"), encoding="utf8"))
 langs = sorted(f[:-3] for f in os.listdir("assets/js/i18n/translations") if f.endswith(".js"))
 rep("24 language files", len(langs) == 24, len(langs))
 NEW = ["cookie.text", "footer.description", "footer.col_learn", "footer.cookie_settings",
-       "footer.free_line", "footer.email_us", "footer.operated_by",
+       "footer.free_line", "footer.email_us",
        "contact.email_placeholder", "hero.badge_live", "hero.title_html",
        "hero.tagline", "hero.see_report"]
 js = r"""
