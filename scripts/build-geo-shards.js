@@ -48,7 +48,10 @@ const DBS = {
         rec.city && (rec.city.geoname_id || rec.city.names?.en),
         loc.time_zone,
         r2(loc.latitude),
-        r2(loc.longitude)
+        r2(loc.longitude),
+        // ranges with a different accuracy radius must not be merged,
+        // or the first range's radius is reported for all of them
+        loc.accuracy_radius
       ].join('|')
     },
     value: (rec) => {
